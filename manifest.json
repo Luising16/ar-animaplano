@@ -1,0 +1,17 @@
+{
+  "name": "AR-Animaplanos",
+  "short_name": "Animaplanos",
+  "description": "Herramienta educativa PWA offline para diseñar y calificar animaplanos mediante Realidad Aumentada.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#F3F4F6",
+  "theme_color": "#4F46E5",
+  "icons": [
+    {
+      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj4KICA8Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0OCIgZmlsbD0iIzRGNDZFNSIvPgogIDxwYXRoIGQ9Ik0zMCw3MCBMMzAsMzAgTDUwLDUwIEw3MCwzMCBMNzAsNzAiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iOCIgZmlsbD0ibm9uZSIvPgo8L3N2Zz4=",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

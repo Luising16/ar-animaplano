@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR-Animaplanos</title>
+    <!-- manifest link (App Shell) -->
+    <link rel="manifest" href="./manifest.json">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary: #4F46E5;
+            --primary-hover: #4338CA;
+            --secondary: #10B981;
+            --secondary-hover: #059669;
+            --bg-color: #F3F4F6;
+            --sidebar-bg: #FFFFFF;
+            --text-dark: #1F2937;
+            --border-color: #E5E7EB;
+            --danger: #EF4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-dark);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        header {
+            background: var(--sidebar-bg);
+            padding: 1rem 2rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            text-align: center;
+            z-index: 20;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header h1 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--primary);
+            letter-spacing: -0.5px;
+        }
+
+        .header-btn {
+            background: none;
+            border: 1px solid var(--border-color);
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .header-btn:hover { background: var(--bg-color); }
+
+        main {
+            flex: 1;
+            position: relative;
+            overflow: hidden; /* Canvas maneja su propio overflow en el layout */
+        }
+
+        /* Utilidades de Vistas */
+        .view-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        .hidden { display: none !important; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Pantalla de Inicio */
+        #home-view {
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .home-menu {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .btn-large {
+            padding: 1.5rem 2rem;
+            font-size: 1.25rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 1rem;
+            cursor: pointer;
+            color: white;
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-large:hover { transform: translateY(-3px); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); }
+        .btn-profesor { background: linear-gradient(135deg, var(--primary), #8B5CF6); }
+        .btn-escaner { background: linear-gradient(135deg, var(--secondary), #34D399); }
+        .btn-icon { font-size: 2.5rem; }
+
+        /* DISEÑADOR AVANZADO (GRID LAYOUT) */
+        #designer-view {
+            display: flex;
+            flex-direction: row;
+        }
+
+        .designer-sidebar {
+            width: 320px;
+            min-width: 320px;
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 1.5rem;
+            overflow-y: auto;
+            box-shadow: 4px 0 10px rgba(0,0,0,0.02);
+            z-index: 10;
+        }
+
+        .designer-sidebar h3 { font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--primary); }
+        .designer-sidebar h4 { font-size: 0.9rem; margin-top: 1.5rem; margin-bottom: 0.5rem; text-transform: uppercase; color: #6B7280; letter-spacing: 0.05em; }
+        
+        .form-group { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 1rem; }
+        .form-group label { font-size: 0.9rem; font-weight: 500; }
+        .form-group select, .form-group input[type="text"] {
+            padding: 0.6rem; border: 1px solid var(--border-color); border-radius: 0.4rem; font-size: 0.95rem; background: var(--bg-color);
+        }
+
+        .btn { padding: 0.6rem 1rem; border: 1px solid var(--border-color); background: white; border-radius: 0.4rem; cursor: pointer; font-weight: 500; font-size: 0.9rem; transition: background 0.2s;}
+        .btn:hover { background: var(--bg-color); }
+        .btn-blue { background: var(--primary); color: white; border: none; }
+        .btn-blue:hover { background: var(--primary-hover); }
+        .btn-green { background: var(--secondary); color: white; border: none; }
+        .btn-green:hover { background: var(--secondary-hover); }
+
+        .flex-row { display: flex; gap: 0.5rem; }
+        .flex-row > button { flex: 1; }
+
+        /* Toggle switches */
+        .toggle-label {
+            display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem; margin-bottom: 0.5rem;
+        }
+
+        /* Tabla CRUD Coordenadas */
+        .table-container {
+            border: 1px solid var(--border-color); border-radius: 0.5rem; overflow: hidden; margin-bottom: 1rem;
+        }
+        table { width: 100%; border-collapse: collapse; text-align: center; }
+        th { background: var(--bg-color); padding: 0.5rem; font-size: 0.8rem; font-weight: 600; border-bottom: 1px solid var(--border-color); }
+        td { padding: 0.2rem; border-bottom: 1px solid var(--border-color); }
+        td input { width: 100%; padding: 0.4rem; border: 1px solid transparent; text-align: center; font-family: monospace; border-radius: 0.3rem; }
+        td input:focus { border-color: var(--primary); outline: none; background: #EEF2FF; }
+        .btn-icon-small { background: transparent; border: none; font-size: 1.2rem; cursor: pointer; color: var(--danger); opacity: 0.7;}
+        .btn-icon-small:hover { opacity: 1; transform: scale(1.1); }
+
+        .designer-main {
+            flex: 1;
+            position: relative;
+            background: #FAFAFA;
+            /* Fondo de cuadricula sutil mediante CSS (opcional, lo haremos en Canvas) */
+            display: flex;
+            flex-direction: column;
+        }
+
+        #cartesian-canvas {
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+            display: block;
+        }
+        #cartesian-canvas:active { cursor: grabbing; }
+
+        /* Tooltip flotante para el Canvas */
+        #canvas-tooltip {
+            position: absolute;
+            background: rgba(17, 24, 39, 0.8);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            display: none;
+            z-index: 50;
+            white-space: nowrap;
+        }
+
+        /* Escáner */
+        #scanner-view { align-items: center; justify-content: center; background: #000; flex-direction: column;}
+        .scanner-container { position: relative; width: 100%; max-width: 600px; aspect-ratio: 4/3; }
+        #scanner-video { width: 100%; height: 100%; object-fit: cover; }
+        #scanner-canvas { position: absolute; top:0; left:0; width: 100%; height: 100%; z-index: 10; }
+        .scanner-tools { position: absolute; bottom: 2rem; display: flex; gap: 1rem; z-index: 20; }
+
+        /* Title for printing */
+        .print-only-title { display: none; text-align: center; font-size: 2rem; margin-bottom: 1rem; }
+
+        /* Estilos de Impresión Optimizada */
+        @media print {
+            @page { size: portrait; margin: 1cm; }
+            body, html { background: white; margin: 0; padding: 0; min-width: 100%; height: auto; overflow: visible; }
+            header, .no-print, .designer-sidebar { display: none !important; }
+            .designer-main { display: block; background: white; border: none; width: 100%; padding: 0; }
+            #designer-view { display: block; }
+            #canvas-wrapper { width: 100% !important; max-width: 18cm !important; margin: 0 auto; display: block; position: relative; } 
+            #cartesian-canvas { width: 100% !important; aspect-ratio: 1; margin: 0; border: 2px solid #000;}
+            .print-only-title { display: block !important; text-align: center; font-size: 1.5rem; margin-bottom: 1rem; }
+            
+            #qr-container { display: flex !important; box-shadow: none !important; background: white !important; border: 2px solid black !important;} 
+            #qr-container p { display: none !important; }
+        }
+
+        #qrcode img, #qrcode canvas { width: 100% !important; height: 100% !important; object-fit: contain; }
+    </style>
+</head>
+<body>
+
+    <header class="no-print">
+        <h1>AR-Animaplanos</h1>
+        <div id="header-tools" class="hidden">
+            <button class="header-btn" onclick="navigateTo('home-view')">X Salir al Menú</button>
+        </div>
+    </header>
+
+    <main>
+        <!-- PANTALLA INICIO -->
+        <div id="home-view" class="view-container">
+            <div class="home-menu">
+                <button class="btn-large btn-profesor" onclick="navigateTo('designer-view')">
+                    <span class="btn-icon">📐</span>
+                    Diseñador (Plano Cartesiano)
+                </button>
+                <button class="btn-large btn-escaner" onclick="navigateTo('scanner-view')">
+                    <span class="btn-icon">📱</span>
+                    Escáner de Evalución AR
+                </button>
+            </div>
+        </div>
+
+        <!-- DISEÑADOR -->
+        <div id="designer-view" class="view-container hidden">
+            <!-- Sidebar -->
+            <aside class="designer-sidebar no-print">
+                <h3>Control de Datos</h3>
+                
+                <div class="form-group">
+                    <label>Plantillas Precargadas (10)</label>
+                    <select id="library-select" onchange="loadPreset(this.value)">
+                        <option value="" disabled selected>Selecciona un animal...</option>
+                        <!-- Se llena vía JS -->
+                    </select>
+                </div>
+
+                <div class="flex-row">
+                    <input type="file" id="file-import" accept=".json" hidden onchange="importJSON(event)">
+                    <button class="btn" onclick="document.getElementById('file-import').click()">📂 Abrir JSON</button>
+                    <button class="btn" onclick="exportJSON()">💾 Guardar JSON</button>
+                </div>
+
+                <h4>Nombre de la Figura</h4>
+                <div class="form-group">
+                    <input type="text" id="figure-name" value="Mi Animaplano" onchange="updateFigureName()">
+                </div>
+
+                <h4>Vista del Plano</h4>
+                <label class="toggle-label"><input type="checkbox" id="chk-axes" checked onchange="drawCartesian()"> Mostrar Ejes X/Y</label>
+                <label class="toggle-label"><input type="checkbox" id="chk-points" checked onchange="drawCartesian()"> Mostrar Puntos</label>
+                <label class="toggle-label"><input type="checkbox" id="chk-lines" checked onchange="drawCartesian()"> Mostrar Trazos</label>
+                <label class="toggle-label"><input type="checkbox" id="chk-labels" checked onchange="drawCartesian()"> Mostrar Etiquetas (X,Y)</label>
+
+                <h4>Impresión Educativa (Modos)</h4>
+                <div class="form-group">
+                    <button class="btn btn-blue" style="margin-bottom:0.5rem" onclick="printMode('reto')">🖨️ Reto (Solo Puntos)</button>
+                    <button class="btn btn-green" style="margin-bottom:0.5rem" onclick="printMode('solucion')">🖨️ Solución (Complejo)</button>
+                    <button class="btn" onclick="printMode('vacio')">🖨️ Estructura Vacía</button>
+                </div>
+
+                <h4>Coordenadas (C.R.U.D.)</h4>
+                <div class="table-container">
+                    <table id="points-table">
+                        <thead><tr><th>#</th><th>X</th><th>Y</th><th>🗑️</th></tr></thead>
+                        <tbody id="points-body">
+                            <!-- Filas dinámicas -->
+                        </tbody>
+                    </table>
+                </div>
+                <button class="btn" style="width:100%" onclick="addEmptyRow()">+ Añadir Coordenada</button>
+                <button class="btn btn-blue" style="width:100%; margin-top:0.5rem;" onclick="generateQR()">Generar QR AR</button>
+                <button class="btn" style="width:100%; margin-top:0.5rem; color: var(--danger)" onclick="clearFigure()">Borrar Todo</button>
+            </aside>
+            
+            <!-- Lienzo -->
+            <section class="designer-main">
+                <h2 class="print-only-title" id="print-title">Mi Animaplano</h2>
+                <div id="canvas-wrapper" style="position: relative; width: 100%; max-width: 25cm; aspect-ratio: 1; margin: 0 auto;">
+                    <div id="canvas-tooltip"></div>
+                    <canvas id="cartesian-canvas" style="width: 100%; height: 100%; border: 1px solid var(--border-color); display:block;"></canvas>
+                    <div id="qr-container" style="display:none; position: absolute; top: 2%; right: 2%; width: 16%; aspect-ratio: 1; background: white; padding: 1%; border-radius: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 2px solid black; z-index: 5;">
+                        <p class="no-print" style="position:absolute; top:-25px; right:0; margin:0; font-weight:600; font-size:0.8rem; white-space:nowrap;">Código QR:</p>
+                        <div id="qrcode" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;"></div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- ESCÁNER AR -->
+        <div id="scanner-view" class="view-container hidden">
+            <div class="print-only-title">Escáner no disponible para impresión.</div>
+            <div class="scanner-container no-print">
+                <video id="scanner-video" playsinline autoplay></video>
+                <canvas id="scanner-canvas"></canvas>
+            </div>
+            <div class="scanner-tools no-print">
+                <button class="btn btn-blue" onclick="navigateTo('home-view')">Atrás</button>
+                <button class="btn btn-green hidden" id="btn-show-answer" onclick="toggleAnswer()">Revisión Maestro</button>
+            </div>
+            <div style="position:absolute; bottom:5rem; background: rgba(255,255,255,0.9); padding: 0.5rem 1rem; border-radius: 0.5rem; font-weight: bold; z-index:20; border: 2px solid black;" id="scanner-status" class="no-print">Inicializando cámara...</div>
+        </div>
+    </main>
+
+    <!-- Librerías Externas CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script async src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script async src="https://docs.opencv.org/4.7.0/opencv.js" onload="console.log('OpenCV.js Loaded')" type="text/javascript"></script>
+
+    <script>
+        /**
+         * SERVICE WORKER REGISTRATION
+         */
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').catch(err => console.error(err));
+            });
+        }
+
+        /**
+         * SPA NAVIGATION
+         */
+        function navigateTo(targetId) {
+            document.querySelectorAll('.view-container').forEach(el => el.classList.add('hidden'));
+            document.getElementById(targetId).classList.remove('hidden');
+            
+            const headerTools = document.getElementById('header-tools');
+            if(targetId === 'home-view') {
+                headerTools.classList.add('hidden');
+                stopScanner();
+            } else {
+                headerTools.classList.remove('hidden');
+                if(targetId === 'designer-view') {
+                    resizeCanvas();
+                    drawCartesian();
+                } else if(targetId === 'scanner-view') {
+                    startScanner();
+                }
+            }
+        }
+
+        /**
+         * 10 PLANTILLAS DE ANIMALES EN JSON
+         * Estructura: nombre, puntos: [{id, x, y}] 
+         * (Se asume conexión secuencial 1->2->3...->N->1 si no hay "segmentos")
+         */
+        const ANIMALS_LIBRARY = [
+            { nombre: "Gato", puntos: [{id:1,x:1,y:1},{id:2,x:5,y:1},{id:3,x:6,y:3},{id:4,x:5,y:5},{id:5,x:4,y:9},{id:6,x:2,y:9},{id:7,x:1,y:5},{id:8,x:0,y:3}] },
+            { nombre: "Perro", puntos: [{id:1,x:-2,y:0},{id:2,x:3,y:0},{id:3,x:4,y:2},{id:4,x:4,y:5},{id:5,x:2,y:4},{id:6,x:0,y:4},{id:7,x:-2,y:5},{id:8,x:-2,y:2}] },
+            { nombre: "Pez", puntos: [{id:1,x:-6,y:0},{id:2,x:-3,y:3},{id:3,x:2,y:3},{id:4,x:5,y:0},{id:5,x:9,y:-3},{id:6,x:9,y:3},{id:7,x:5,y:0},{id:8,x:2,y:-3},{id:9,x:-3,y:-3}] },
+            { nombre: "Mariposa", puntos: [{id:1,x:0,y:5},{id:2,x:3,y:8},{id:3,x:6,y:5},{id:4,x:2,y:1},{id:5,x:5,y:-3},{id:6,x:1,y:-5},{id:7,x:0,y:-2},{id:8,x:-1,y:-5},{id:9,x:-5,y:-3},{id:10,x:-2,y:1},{id:11,x:-6,y:5},{id:12,x:-3,y:8}] },
+            { nombre: "Tortuga", puntos: [{id:1,x:-4,y:0},{id:2,x:-2,y:3},{id:3,x:2,y:3},{id:4,x:4,y:0},{id:5,x:6,y:1},{id:6,x:7,y:0},{id:7,x:5,y:-2},{id:8,x:2,y:-2},{id:9,x:2,y:-4},{id:10,x:0,y:-4},{id:11,x:-2,y:-2},{id:12,x:-5,y:-2}] },
+            { nombre: "Pájaro", puntos: [{id:1,x:-3,y:0},{id:2,x:-1,y:4},{id:3,x:2,y:5},{id:4,x:5,y:2},{id:5,x:4,y:-1},{id:6,x:8,y:-1},{id:7,x:4,y:-3},{id:8,x:-1,y:-4},{id:9,x:-5,y:-1}] },
+            { nombre: "Conejo", puntos: [{id:1,x:0,y:0},{id:2,x:3,y:0},{id:3,x:4,y:3},{id:4,x:5,y:8},{id:5,x:3,y:8},{id:6,x:2,y:6},{id:7,x:1,y:8},{id:8,x:-1,y:8},{id:9,x:0,y:3},{id:10,x:-2,y:1}] },
+            { nombre: "Ballena", puntos: [{id:1,x:-7,y:0},{id:2,x:-4,y:3},{id:3,x:2,y:4},{id:4,x:7,y:2},{id:5,x:10,y:4},{id:6,x:8,y:0},{id:7,x:10,y:-2},{id:8,x:7,y:0},{id:9,x:2,y:-2},{id:10,x:-4,y:-1}] },
+            { nombre: "Zorro", puntos: [{id:1,x:-3,y:3},{id:2,x:0,y:0},{id:3,x:3,y:3},{id:4,x:5,y:0},{id:5,x:2,y:-4},{id:6,x:-2,y:-4},{id:7,x:-5,y:0}] },
+            { nombre: "Cisne", puntos: [{id:1,x:-3,y:2},{id:2,x:-5,y:4},{id:3,x:-3,y:6},{id:4,x:2,y:6},{id:5,x:5,y:2},{id:6,x:6,y:0},{id:7,x:8,y:1},{id:8,x:7,y:-2},{id:9,x:4,y:-4},{id:10,x:0,y:-4},{id:11,x:-4,y:-2},{id:12,x:-6,y:0}] }
+        ];
+
+        let currentFigure = { nombre: "Nuevo Animaplano", puntos: [], segmentos: null };
+
+        // Llenar selector
+        const select = document.getElementById('library-select');
+        ANIMALS_LIBRARY.forEach((anim, idx) => {
+            let opt = document.createElement('option');
+            opt.value = idx; opt.innerText = anim.nombre;
+            select.appendChild(opt);
+        });
+
+        function loadPreset(idx) {
+            if(idx === "" || !ANIMALS_LIBRARY[idx]) return;
+            // Clonar profundo para no alterar la constante
+            currentFigure = JSON.parse(JSON.stringify(ANIMALS_LIBRARY[idx]));
+            document.getElementById('figure-name').value = currentFigure.nombre;
+            rebuildTable();
+            drawCartesian();
+        }
+
+        /**
+         * GESTION DE DATOS / CRUD TABLA
+         */
+        const tbody = document.getElementById('points-body');
+
+        function rebuildTable() {
+            tbody.innerHTML = '';
+            currentFigure.puntos.forEach((p, idx) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${idx + 1}</td>
+                    <td><input type="number" value="${p.x}" onchange="updatePoint(${idx}, 'x', this.value)"></td>
+                    <td><input type="number" value="${p.y}" onchange="updatePoint(${idx}, 'y', this.value)"></td>
+                    <td><button class="btn-icon-small" onclick="deletePoint(${idx})">✖</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+            document.getElementById('animaplano-title') ? document.getElementById('animaplano-title').innerText = currentFigure.nombre : null;
+            document.getElementById('print-title').innerText = currentFigure.nombre;
+            drawCartesian();
+        }
+
+        function updatePoint(idx, axis, value) {
+            currentFigure.puntos[idx][axis] = parseFloat(value) || 0;
+            drawCartesian();
+        }
+
+        function deletePoint(idx) {
+            currentFigure.puntos.splice(idx, 1);
+            // Reasignar IDs secuencialmente
+            currentFigure.puntos.forEach((p, i) => p.id = i + 1);
+            rebuildTable();
+        }
+
+        function addEmptyRow() {
+            const nextId = currentFigure.puntos.length + 1;
+            currentFigure.puntos.push({ id: nextId, x: 0, y: 0 });
+            rebuildTable();
+        }
+
+        function updateFigureName() {
+            currentFigure.nombre = document.getElementById('figure-name').value || "Animaplano";
+            rebuildTable();
+        }
+
+        function clearFigure() {
+            if(confirm("¿Estás seguro de borrar todas las coordenadas?")) {
+                currentFigure.puntos = [];
+                currentFigure.segmentos = null;
+                const qrCon = document.getElementById('qr-container');
+                if(qrCon) qrCon.style.display = 'none';
+                rebuildTable();
+            }
+        }
+
+        function generateQR() {
+            if(currentFigure.puntos.length < 2) {
+                alert("Agrega al menos 2 puntos para generar el QR.");
+                return;
+            }
+            // Forzamos alineación óptima antes de plasmarla en el QR
+            centerFigure();
+            drawCartesian();
+
+            // Comprimir la data + Metadatos de Layout EXACTOS (Relativos al canvas)
+            const dataToExport = {
+                n: currentFigure.nombre.substring(0, 15), 
+                p: currentFigure.puntos.map(pt => [pt.x, pt.y]),
+                s: scale / canvas.width,
+                ox: offsetX / canvas.width,
+                oy: offsetY / canvas.height,
+                qx: 0.82, // Left percentage (1 - 0.02 - 0.16)
+                qy: 0.02, // Top percentage
+                qw: 0.16  // Width percentage
+            };
+            const qrText = JSON.stringify(dataToExport);
+            const qrContainer = document.getElementById('qr-container');
+            const qrCodeDiv = document.getElementById('qrcode');
+            
+            qrCodeDiv.innerHTML = '';
+            qrContainer.style.display = 'block';
+
+            new QRCode(qrCodeDiv, {
+                text: qrText,
+                width: 256,
+                height: 256,
+                colorDark : "#000000",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.L
+            });
+        }
+
+        /**
+         * EXPORTAR E IMPORTAR JSON
+         */
+        function exportJSON() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(currentFigure, null, 2));
+            const dlAnchorElem = document.createElement('a');
+            dlAnchorElem.setAttribute("href", dataStr);
+            dlAnchorElem.setAttribute("download", `${currentFigure.nombre.replace(/\s+/g, '_')}.json`);
+            dlAnchorElem.click();
+        }
+
+        function importJSON(event) {
+            const file = event.target.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const parsed = JSON.parse(e.target.result);
+                    if(parsed.puntos && Array.isArray(parsed.puntos)) {
+                        currentFigure = parsed;
+                        if(!currentFigure.nombre) currentFigure.nombre = "Animaplano Importado";
+                        document.getElementById('figure-name').value = currentFigure.nombre;
+                        rebuildTable();
+                    } else {
+                        alert("El JSON no tiene el formato correcto (Falta array 'puntos').");
+                    }
+                } catch(err) {
+                    alert("Error leyendo archivo JSON. Formato inválido.");
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        /**
+         * MOTOR CARTESIANO (CANVAS INTERACTIVO)
+         */
+        const canvas = document.getElementById('cartesian-canvas');
+        const ctx = canvas.getContext('2d');
+        const tooltip = document.getElementById('canvas-tooltip');
+
+        // Estado de Cámara / Viewport
+        let scale = 30; // pixeles por unidad
+        let offsetX = 0; // offset en pixeles
+        let offsetY = 0; // offset en pixeles
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+
+        function resizeCanvas() {
+            const parent = canvas.parentElement;
+            canvas.width = parent.clientWidth;
+            canvas.height = parent.clientHeight;
+            // Centrar el origen por defecto
+            if(offsetX === 0 && offsetY === 0) {
+                offsetX = canvas.width / 2;
+                offsetY = canvas.height / 2;
+            }
+            drawCartesian();
+        }
+        window.addEventListener('resize', () => {
+            if(!document.getElementById('designer-view').classList.contains('hidden')) {
+                resizeCanvas();
+            }
+        });
+
+        // Eventos Pan, Zoom & Inserción por Clic
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            dragStartX = e.clientX - offsetX;
+            dragStartY = e.clientY - offsetY;
+            canvas.dataset.clickX = e.clientX;
+            canvas.dataset.clickY = e.clientY;
+            canvas.style.cursor = 'grabbing';
+        });
+
+        canvas.addEventListener('mouseup', (e) => { 
+            isDragging = false; 
+            canvas.style.cursor = 'grab'; 
+            
+            const clickX = parseFloat(canvas.dataset.clickX);
+            const clickY = parseFloat(canvas.dataset.clickY);
+            if(Math.abs(e.clientX - clickX) < 5 && Math.abs(e.clientY - clickY) < 5) {
+                // Inserción vía Click (no hubo arrastre)
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                
+                const mathX = Math.round((mouseX - offsetX) / scale);
+                const mathY = Math.round((offsetY - mouseY) / scale);
+                
+                const exists = currentFigure.puntos.find(p => p.x === mathX && p.y === mathY);
+                if(!exists) {
+                    currentFigure.puntos.push({ id: currentFigure.puntos.length + 1, x: mathX, y: mathY });
+                    const qrCon = document.getElementById('qr-container');
+                    if(qrCon) qrCon.style.display = 'none';
+                    rebuildTable();
+                }
+            }
+        });
+        canvas.addEventListener('mouseleave', () => { isDragging = false; canvas.style.cursor = 'grab'; tooltip.style.display = 'none'; });
+
+        canvas.addEventListener('mousemove', (e) => {
+            // Pan (Arrastrar fondo)
+            if(isDragging) {
+                offsetX = e.clientX - dragStartX;
+                offsetY = e.clientY - dragStartY;
+                drawCartesian();
+                return;
+            }
+
+            // Hover sobre puntos (Tooltips)
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            let hoveredPoint = null;
+            for(let p of currentFigure.puntos) {
+                const screenX = offsetX + (p.x * scale);
+                const screenY = offsetY - (p.y * scale); // El eje Y sube en mate, baja en canvas
+                const dist = Math.sqrt(Math.pow(mouseX - screenX, 2) + Math.pow(mouseY - screenY, 2));
+                if(dist < 10) { // Radio de colisión
+                    hoveredPoint = p;
+                    break;
+                }
+            }
+
+            if(hoveredPoint) {
+                tooltip.style.left = (e.clientX + 15) + 'px';
+                tooltip.style.top = (e.clientY + 15) + 'px';
+                tooltip.style.display = 'block';
+                tooltip.innerText = `Punto ${hoveredPoint.id}: (${hoveredPoint.x}, ${hoveredPoint.y})`;
+            } else {
+                tooltip.style.display = 'none';
+            }
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomAmount = e.deltaY > 0 ? 0.9 : 1.1; // 10% de zoom
+            
+            // Mantener el zoom centrado en el mouse
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            offsetX = mouseX - (mouseX - offsetX) * zoomAmount;
+            offsetY = mouseY - (mouseY - offsetY) * zoomAmount;
+            scale *= zoomAmount;
+            
+            // Limites de escala
+            if(scale < 5) scale = 5;
+            if(scale > 150) scale = 150;
+            
+            drawCartesian();
+        });
+
+        function drawCartesian() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const showAxes = document.getElementById('chk-axes').checked;
+            const showPoints = document.getElementById('chk-points').checked;
+            const showLines = document.getElementById('chk-lines').checked;
+            const showLabels = document.getElementById('chk-labels').checked;
+
+            if(showAxes) {
+                // Dibujar Grid Menor
+                ctx.strokeStyle = '#E5E7EB';
+                ctx.lineWidth = 1;
+                // Calculamos desde donde dibujar líneas basado en offset
+                const startX = Math.floor(-offsetX / scale) - 1;
+                const endX = Math.ceil((canvas.width - offsetX) / scale) + 1;
+                const startY = Math.floor(-offsetY / scale) - 1; // recordar q Y va invertido
+                const endY = Math.ceil((canvas.height - offsetY) / scale) + 1;
+
+                ctx.beginPath();
+                for(let x = startX; x <= endX; x++) {
+                    const screenX = offsetX + (x * scale);
+                    ctx.moveTo(screenX, 0); ctx.lineTo(screenX, canvas.height);
+                }
+                for(let y = startY; y <= endY; y++) {
+                    const screenY = offsetY + (y * scale);
+                    ctx.moveTo(0, screenY); ctx.lineTo(canvas.width, screenY);
+                }
+                ctx.stroke();
+
+                // Dibujar Ejes Principales X / Y
+                ctx.strokeStyle = '#9CA3AF';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                // Eje Y
+                ctx.moveTo(offsetX, 0); ctx.lineTo(offsetX, canvas.height);
+                // Eje X
+                ctx.moveTo(0, offsetY); ctx.lineTo(canvas.width, offsetY);
+                ctx.stroke();
+
+                // Números en los ejes (opcional visual extra)
+                ctx.fillStyle = '#6B7280';
+                ctx.font = '10px Arial';
+                ctx.textAlign = 'center';
+                for(let x = startX; x <= endX; x++) {
+                    if(x === 0) continue;
+                    ctx.fillText(x, offsetX + (x * scale), offsetY + 15);
+                }
+                ctx.textAlign = 'left';
+                for(let y = -endY; y <= -startY + 1; y++) { // Invirtiendo loop para el renderizado numérico
+                    if(y === 0) continue;
+                    const screenY = offsetY - (y * scale);
+                    ctx.fillText(y, offsetX + 5, screenY + 4);
+                }
+            }
+
+            // DIBUJAR TRAZOS / LÍNEAS
+            if(showLines && currentFigure.puntos.length > 1) {
+                ctx.strokeStyle = '#4F46E5';
+                ctx.lineWidth = 3;
+                ctx.lineJoin = 'round';
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                
+                // Si hay segmentos definidos, usar logica de grafos. Si no, secuencial
+                if(currentFigure.segmentos && currentFigure.segmentos.length > 0) {
+                    currentFigure.segmentos.forEach(seg => {
+                        const p1 = currentFigure.puntos.find(p => p.id === seg[0]);
+                        const p2 = currentFigure.puntos.find(p => p.id === seg[1]);
+                        if(p1 && p2) {
+                            ctx.moveTo(offsetX + p1.x * scale, offsetY - p1.y * scale);
+                            ctx.lineTo(offsetX + p2.x * scale, offsetY - p2.y * scale);
+                        }
+                    });
+                } else {
+                    currentFigure.puntos.forEach((p, idx) => {
+                        const screenX = offsetX + p.x * scale;
+                        const screenY = offsetY - p.y * scale;
+                        if(idx === 0) ctx.moveTo(screenX, screenY);
+                        else ctx.lineTo(screenX, screenY);
+                    });
+                    // Opcional: Cerrar figura secuencial
+                    const pFirst = currentFigure.puntos[0];
+                    ctx.lineTo(offsetX + pFirst.x * scale, offsetY - pFirst.y * scale);
+                }
+                ctx.stroke();
+            }
+
+            // DIBUJAR PUNTOS
+            if(showPoints && currentFigure.puntos.length > 0) {
+                currentFigure.puntos.forEach((p, idx) => {
+                    const screenX = offsetX + p.x * scale;
+                    const screenY = offsetY - p.y * scale;
+                    
+                    // Circulo
+                    ctx.beginPath();
+                    ctx.arc(screenX, screenY, 6, 0, 2*Math.PI);
+                    ctx.fillStyle = showLines ? '#FFFFFF' : '#4F46E5'; // Huecos si hay lineas activas
+                    ctx.fill();
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = '#4F46E5';
+                    ctx.stroke();
+
+                    // Etiqueta del Num / ID
+                    if(showLabels) {
+                        ctx.fillStyle = '#111827';
+                        ctx.font = 'bold 12px Inter';
+                        ctx.textAlign = 'left';
+                        ctx.fillText(p.id, screenX + 10, screenY - 10);
+                    }
+                });
+            }
+        }
+
+        /**
+         * MODOS DE IMPRESIÓN (PDF Export config)
+         */
+        function printMode(tipo) {
+            const chkAxes = document.getElementById('chk-axes');
+            const chkPoints = document.getElementById('chk-points');
+            const chkLines = document.getElementById('chk-lines');
+            
+            if(tipo === 'reto') {
+                chkAxes.checked = true; chkPoints.checked = true; chkLines.checked = false;
+            } else if(tipo === 'solucion') {
+                chkAxes.checked = true; chkPoints.checked = true; chkLines.checked = true;
+            } else if(tipo === 'vacio') {
+                chkAxes.checked = true; chkPoints.checked = false; chkLines.checked = false;
+            }
+            
+            // Centrar figura (auto focus origin) antes de imprimir
+            if(tipo !== 'vacio') {
+                centerFigure();
+            } else {
+                scale = 30; offsetX = canvas.width/2; offsetY = canvas.height/2;
+            }
+            
+            drawCartesian();
+            
+            // Un pequeño delay para que el browser renderice el canvas nuevo antes de llamar a print dialog
+            setTimeout(() => {
+                window.print();
+            }, 300);
+        }
+
+        // Función auxiliar para auto-centrar la figura en el canvas de cara a la impresión
+        function centerFigure() {
+            if(currentFigure.puntos.length === 0) return;
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            currentFigure.puntos.forEach(p => {
+                if(p.x < minX) minX = p.x;
+                if(p.x > maxX) maxX = p.x;
+                if(p.y < minY) minY = p.y;
+                if(p.y > maxY) maxY = p.y;
+            });
+            const diffX = maxX - minX === 0 ? 1 : maxX - minX;
+            const diffY = maxY - minY === 0 ? 1 : maxY - minY;
+            
+            const padding = 50; // pixeles
+            const scaleX = (canvas.width - padding*2) / diffX;
+            const scaleY = (canvas.height - padding*2) / diffY;
+            scale = Math.min(scaleX, scaleY);
+            if(scale > 60) scale = 60; // Limite de escala maxima
+
+            const centerX = minX + diffX/2;
+            const centerY = minY + diffY/2;
+            
+            offsetX = canvas.width/2 - (centerX * scale);
+            offsetY = canvas.height/2 + (centerY * scale); // sumado por inversión eje Y
+        }
+
+
+        /**
+         * MOTOR DE ESCÁNER Y AR (jsQR integrado)
+         */
+        const scannerVideo = document.getElementById('scanner-video');
+        const scannerCanvas = document.getElementById('scanner-canvas');
+        const scannerCtx = scannerCanvas.getContext('2d');
+        const scannerStatus = document.getElementById('scanner-status');
+        let scannerStream = null;
+        let scanningLoop = null;
+        let showingAnswer = false;
+        let currentScanData = null;
+
+        function toggleAnswer() {
+            showingAnswer = !showingAnswer;
+            document.getElementById('btn-show-answer').innerText = showingAnswer ? "Ocultar Figura Esperada" : "Ver Figura Esperada";
+        }
+
+        function isLineDrawn(imageData, x1, y1, x2, y2) {
+            const steps = 15;
+            let darkCount = 0;
+            for(let i=1; i<steps; i++) {
+                let t = i/steps;
+                let px = Math.round(x1 + (x2 - x1)*t);
+                let py = Math.round(y1 + (y2 - y1)*t);
+                if(px < 0 || py < 0 || px >= imageData.width || py >= imageData.height) continue;
+                
+                let idx = (py * imageData.width + px) * 4;
+                let brightness = (imageData.data[idx] + imageData.data[idx+1] + imageData.data[idx+2]) / 3;
+                
+                // Si el pixel es suficientemente oscuro o gris (lápiz/tinta)
+                if (brightness < 120) { 
+                    darkCount++;
+                }
+            }
+            // Retorna verdadero si al menos el 20% del trayecto tiene trazo marcado
+            return darkCount >= (steps * 0.2); 
+        }
+
+        async function startScanner() {
+            try {
+                scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                scannerVideo.srcObject = scannerStream;
+                
+                // Setear resolución del Canvas al Video
+                scannerVideo.onloadedmetadata = () => {
+                    scannerCanvas.width = scannerVideo.videoWidth;
+                    scannerCanvas.height = scannerVideo.videoHeight;
+                };
+                
+                requestAnimationFrame(tickScanner);
+                scannerStatus.innerText = "Buscando Código QR...";
+            } catch(e) { document.getElementById('scanner-status').innerText = "Cámara no disponible."; }
+        }
+
+        function stopScanner() {
+            if(scannerStream) scannerStream.getTracks().forEach(t => t.stop());
+            if(scanningLoop) cancelAnimationFrame(scanningLoop);
+            scannerCtx.clearRect(0,0, scannerCanvas.width, scannerCanvas.height);
+        }
+
+        function tickScanner() {
+            if (scannerVideo.readyState === scannerVideo.HAVE_ENOUGH_DATA) {
+                scannerCanvas.width = scannerVideo.videoWidth;
+                scannerCanvas.height = scannerVideo.videoHeight;
+                scannerCtx.clearRect(0, 0, scannerCanvas.width, scannerCanvas.height);
+                
+                const offCanvas = document.createElement('canvas');
+                offCanvas.width = scannerVideo.videoWidth;
+                offCanvas.height = scannerVideo.videoHeight;
+                const offCtx = offCanvas.getContext('2d', {willReadFrequently: true});
+                offCtx.drawImage(scannerVideo, 0, 0, offCanvas.width, offCanvas.height);
+                const frameData = offCtx.getImageData(0, 0, offCanvas.width, offCanvas.height);
+
+                if (!currentScanData) {
+                    scannerStatus.innerText = "👉 ENFOCA EL PLANO IMPRESO COMPLETO Y EL QR 👈";
+                }
+
+                if(typeof jsQR !== "undefined") {
+                    const code = jsQR(frameData.data, frameData.width, frameData.height, { inversionAttempts: "dontInvert" });
+                    
+                    if (code) {
+                        try {
+                            const data = JSON.parse(code.data);
+                            if (data.p) currentScanData = data;
+                        } catch(e) {}
+
+                        if (currentScanData) {
+                            scannerStatus.innerText = "¡Escaneo y Mapeo en Vivo Perfecto!";
+                            document.getElementById('btn-show-answer').classList.remove('hidden');
+
+                            // Mapeo Dinámico de Proyección Mágica y Rotación Vectorial (Scanner Universal)
+                             // 1. Escala Universal y Ángulo de Rotación Dinámica
+                            const qrTopLeftX = code.location.topLeftCorner.x;
+                            const qrTopLeftY = code.location.topLeftCorner.y;
+                            const qrTopRightX = code.location.topRightCorner.x;
+                            const qrTopRightY = code.location.topRightCorner.y;
+                            
+                            const qrW = Math.sqrt(Math.pow(qrTopRightX - qrTopLeftX, 2) + Math.pow(qrTopRightY - qrTopLeftY, 2));
+                            const angle = Math.atan2(qrTopRightY - qrTopLeftY, qrTopRightX - qrTopLeftX);
+                            
+                            // 2. Extrapolación Matemática según METADATOS del QR
+                            const qxRatio = currentScanData.qx || 0.82;
+                            const qyRatio = currentScanData.qy || 0.02;
+                            const qwRatio = currentScanData.qw || 0.16;
+
+                            const cw = qrW / qwRatio; 
+                            
+                            // 3. Origen del CartesianCanvas vectorizado desde el QR! 
+                            const vecX = -qxRatio * cw;
+                            const vecY = -qyRatio * cw;
+                            const rotVecX = vecX * Math.cos(angle) - vecY * Math.sin(angle);
+                            const rotVecY = vecX * Math.sin(angle) + vecY * Math.cos(angle);
+                            const camCanvasX = qrTopLeftX + rotVecX;
+                            const camCanvasY = qrTopLeftY + rotVecY;
+
+                            // 4. Proyección Transformacional del Punto Virtual X,Y a Píxeles Físicos de la Cámara
+                            let pts = currentScanData.p.map(arr => ({x: arr[0], y: arr[1]}));
+                            let sRatio = currentScanData.s || 0.05;
+                            let oxRatio = currentScanData.ox || 0.5;
+                            let oyRatio = currentScanData.oy || 0.5;
+                            
+                            const projectedPts = pts.map(pt => {
+                                let relPx = (pt.x * sRatio) + oxRatio;
+                                let relPy = oyRatio - (pt.y * sRatio);  // Grid está Invertido hacia Arriba Matemáticamente
+                                
+                                let px_unrotated = relPx * cw;
+                                let py_unrotated = relPy * cw;
+                                
+                                return {
+                                    id: 0, x: pt.x, y: pt.y,
+                                    px: camCanvasX + (px_unrotated * Math.cos(angle) - py_unrotated * Math.sin(angle)),
+                                    py: camCanvasY + (px_unrotated * Math.sin(angle) + py_unrotated * Math.cos(angle))
+                                };
+                            });
+                            
+                            // 5. Motor Visual Evaluador con Tinta Lápiz (Trazos Oscuros)
+                            let correctLines = 0;
+                            scannerCtx.lineWidth = 6;
+                            scannerCtx.lineCap = 'round';
+
+                            for(let i = 0; i < projectedPts.length; i++) {
+                                let p1 = projectedPts[i];
+                                let p2 = (i === projectedPts.length - 1) ? projectedPts[0] : projectedPts[i+1];
+                                
+                                const isDrawn = isLineDrawn(frameData, p1.px, p1.py, p2.px, p2.py);
+                                
+                                if(isDrawn) {
+                                    correctLines++;
+                                    scannerCtx.strokeStyle = 'rgba(16, 185, 129, 0.9)'; // Verde
+                                } else {
+                                    scannerCtx.strokeStyle = 'rgba(239, 68, 68, 0.6)'; // Rojo revelado
+                                }
+
+                                if(isDrawn || showingAnswer) {
+                                    scannerCtx.beginPath();
+                                    scannerCtx.moveTo(p1.px, p1.py);
+                                    scannerCtx.lineTo(p2.px, p2.py);
+                                    scannerCtx.stroke();
+                                }
+                            }
+                            
+                            scannerStatus.innerText = `Revisión Viva: ${correctLines}/${projectedPts.length} uniones perfectas.`;
+
+                            // 6. Dibuja los Esferos Base Cartesianos
+                            scannerCtx.fillStyle = '#1F2937'; 
+                            scannerCtx.strokeStyle = '#FFFFFF';
+                            scannerCtx.lineWidth = 2;
+                            projectedPts.forEach(pt => {
+                                scannerCtx.beginPath();
+                                scannerCtx.arc(pt.px, pt.py, 4, 0, Math.PI * 2);
+                                scannerCtx.fill();
+                                scannerCtx.stroke();
+                            });
+                        }
+                    } else if (!currentScanData) {
+                         scannerStatus.innerText = "👉 ENFOCA EL PLANO IMPRESO COMPLETO Y EL QR 👈";
+                    } else if (currentScanData) {
+                         scannerStatus.innerText = "¡Mueve tu celular e incluye el QR visualmente en la cámara!";
+                    }
+                }
+            }
+            scanningLoop = requestAnimationFrame(tickScanner);
+        }
+
+    </script>
+</body>
+</html>
