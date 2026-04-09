@@ -226,10 +226,10 @@
             .designer-main { display: block; background: white; border: none; width: 100%; padding: 0; }
             #designer-view { display: block; }
             #canvas-wrapper { width: 100% !important; max-width: 18cm !important; margin: 0 auto; display: block; position: relative; } 
-            #cartesian-canvas { width: 100% !important; aspect-ratio: 1; margin: 0; border: 2px solid #000;}
+            #cartesian-canvas { width: 100% !important; aspect-ratio: 1; margin: 0; border: 4px solid #000 !important;}
             .print-only-title { display: block !important; text-align: center; font-size: 1.5rem; margin-bottom: 1rem; }
             
-            #qr-container { display: flex !important; box-shadow: none !important; background: white !important; border: 2px solid black !important;} 
+            #qr-container { display: flex !important; box-shadow: none !important; background: white !important; border: 2px solid black !important; width: 35% !important;} 
             #qr-container p { display: none !important; }
         }
 
@@ -318,7 +318,7 @@
                 <div id="canvas-wrapper" style="position: relative; width: 100%; max-width: 25cm; aspect-ratio: 1; margin: 0 auto;">
                     <div id="canvas-tooltip"></div>
                     <canvas id="cartesian-canvas" style="width: 100%; height: 100%; border: 1px solid var(--border-color); display:block;"></canvas>
-                    <div id="qr-container" style="display:none; position: absolute; top: 2%; right: 2%; width: 20%; aspect-ratio: 1; background: white; padding: 1%; border-radius: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 2px solid black; z-index: 5;">
+                    <div id="qr-container" style="display:none; position: absolute; top: 2%; right: 2%; width: 35%; aspect-ratio: 1; background: white; padding: 0; border-radius: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 2px solid black; z-index: 5;">
                         <p class="no-print" style="position:absolute; top:-25px; right:0; margin:0; font-weight:600; font-size:0.8rem; white-space:nowrap;">Código QR:</p>
                         <div id="qrcode" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;"></div>
                     </div>
@@ -480,17 +480,20 @@
             drawCartesian();
 
             // Comprimir la data + Metadatos de Layout EXACTOS (Relativos al canvas)
-            const dataToExport = {
-                n: currentFigure.nombre.substring(0, 15), 
-                p: currentFigure.puntos.map(pt => [pt.x, pt.y]),
-                s: scale / canvas.width,
-                ox: offsetX / canvas.width,
-                oy: offsetY / canvas.height,
-                qx: 0.78, // Proporción Left (1 - margin_right - qr_width) = 1 - 0.02 - 0.20
-                qy: 0.02, // Top percentage
-                qw: 0.20  // Width percentage (20%)
-            };
-            const qrText = JSON.stringify(dataToExport);
+            // Serialización Compacta v2 para Máximo Alcance (50cm+)
+            const nameComp = currentFigure.nombre.substring(0, 15).replace(/:/g, '');
+            const ptsComp = currentFigure.puntos.map(p => `${p.x},${p.y}`).join(';');
+            const sRel = (scale / canvas.width).toFixed(3);
+            const oxRel = (offsetX / canvas.width).toFixed(3);
+            const oyRel = (offsetY / canvas.height).toFixed(3);
+            
+            // Metadatos de Layout Exactos (Sin padding)
+            const qx = 0.63; // 1 - margin_right(0.02) - width(0.35)
+            const qy = 0.02;
+            const qw = 0.35;
+
+            const qrText = `v2|${nameComp}|${ptsComp}|${sRel},${oxRel},${oyRel},${qx},${qy},${qw}`;
+            
             const qrContainer = document.getElementById('qr-container');
             const qrCodeDiv = document.getElementById('qrcode');
             
@@ -503,7 +506,7 @@
                 height: 256,
                 colorDark : "#000000",
                 colorLight : "#ffffff",
-                correctLevel : QRCode.CorrectLevel.M // Nivel Medio para mejor balance
+                correctLevel : QRCode.CorrectLevel.M 
             });
         }
 
@@ -849,8 +852,11 @@
         // Variables para Suavizado (EMA) y Persistencia
         let framesSinceLastQR = 100; // Empezamos alto para indicar que no hay nada
         let smoothedTransform = {
-            camCanvasX: 0, camCanvasY: 0, qrW: 0, angle: 0
+            camCanvasX: 0, camCanvasY: 0, qrW: 0, angle: 0,
+            gridCorners: null // Array de {x, y} en coordenadas de cámara (píxeles)
         };
+        let lastKnownGridCorners = null;
+        let gridTrackingConfidence = 0; // 0 a 100
         const EMA_ALPHA = 0.3; // Factor de suavizado (0 a 1)
         const MAX_PERSISTENCE_FRAMES = 45; // ~1.5 segundos a 30fps
 
@@ -860,24 +866,41 @@
         }
 
         function isLineDrawn(imageData, x1, y1, x2, y2) {
-            const steps = 15;
-            let darkCount = 0;
+            const steps = 25; // Más muestras para precisión
+            let darkerThanBgCount = 0;
+            const threshold = 35; // Diferencia de brillo requerida (0-255)
+            
             for(let i=1; i<steps; i++) {
                 let t = i/steps;
                 let px = Math.round(x1 + (x2 - x1)*t);
                 let py = Math.round(y1 + (y2 - y1)*t);
-                if(px < 0 || py < 0 || px >= imageData.width || py >= imageData.height) continue;
                 
+                if(px < 2 || py < 2 || px >= imageData.width - 2 || py >= imageData.height - 2) continue;
+                
+                // 1. Brillo del Píxel en la Línea Proyectada
                 let idx = (py * imageData.width + px) * 4;
-                let brightness = (imageData.data[idx] + imageData.data[idx+1] + imageData.data[idx+2]) / 3;
+                let lineBrightness = (imageData.data[idx] + imageData.data[idx+1] + imageData.data[idx+2]) / 3;
                 
-                // Si el pixel es suficientemente oscuro o gris (lápiz/tinta)
-                if (brightness < 120) { 
-                    darkCount++;
+                // 2. Brillo del "Fondo" (Muestreamos 5px a un lado de la línea para evitar la propia línea)
+                // Vector perpendicular simple
+                let dx = x2 - x1;
+                let dy = y2 - y1;
+                let len = Math.sqrt(dx*dx + dy*dy) || 1;
+                let nx = -dy / len * 5; 
+                let ny = dx / len * 5;
+                
+                let bgX = Math.round(px + nx);
+                let bgY = Math.round(py + ny);
+                let bgIdx = (bgY * imageData.width + bgX) * 4;
+                let bgBrightness = (imageData.data[bgIdx] + imageData.data[bgIdx+1] + imageData.data[bgIdx+2]) / 3;
+
+                // 3. Comparación Diferencial: Si la línea es significativamente más oscura que su fondo inmediato
+                if (lineBrightness < (bgBrightness - threshold)) { 
+                    darkerThanBgCount++;
                 }
             }
-            // Retorna verdadero si al menos el 20% del trayecto tiene trazo marcado
-            return darkCount >= (steps * 0.2); 
+            // Requiere que el 55% de la línea sea consistentemente más oscura que el papel de fondo
+            return darkerThanBgCount >= (steps * 0.55); 
         }
 
         async function startScanner() {
@@ -885,8 +908,8 @@
                 const constraints = { 
                     video: { 
                         facingMode: "environment",
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
                     } 
                 };
                 scannerStream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -949,9 +972,27 @@
                     
                     if (code) {
                         try {
-                            const data = JSON.parse(code.data);
-                            if (data.p) currentScanData = data;
-                        } catch(e) {}
+                            // Soporte para v2 (Compacto) y fallback JSON
+                            if (code.data.startsWith('v2|')) {
+                                const [version, name, ptsStr, metaStr] = code.data.split('|');
+                                const ptsArr = ptsStr.split(';').map(s => s.split(',').map(Number));
+                                const metaArr = metaStr.split(',').map(Number);
+                                
+                                currentScanData = {
+                                    n: name,
+                                    p: ptsArr,
+                                    s: metaArr[0],
+                                    ox: metaArr[1],
+                                    oy: metaArr[2],
+                                    qx: metaArr[3],
+                                    qy: metaArr[4],
+                                    qw: metaArr[5]
+                                };
+                            } else {
+                                const data = JSON.parse(code.data);
+                                if (data.p) currentScanData = data;
+                            }
+                        } catch(e) { console.error("Error parsing QR", e); }
 
                         if (currentScanData) {
                             // 1. Datos Brutos del QR actual
@@ -977,9 +1018,9 @@
                             }
 
                             // 3. Extrapolación Matemática según METADATOS del QR
-                            const qxRatio = currentScanData.qx || 0.78;
+                            const qxRatio = currentScanData.qx || 0.63;
                             const qyRatio = currentScanData.qy || 0.02;
-                            const qwRatio = currentScanData.qw || 0.20;
+                            const qwRatio = currentScanData.qw || 0.35;
 
                             const cw = smoothedTransform.qrW / qwRatio; 
                             
@@ -1001,53 +1042,82 @@
                             }
 
                             framesSinceLastQR = 0; // Reset de persistencia
-                            scannerStatus.innerText = "¡Escaneo y Mapeo en Vivo Perfecto!";
+                            scannerStatus.innerText = "¡QR Detectado! Encuadra el plano completo.";
                             document.getElementById('btn-show-answer').classList.remove('hidden');
 
-                            // 5. Proyección Transformacional
-                            let pts = currentScanData.p.map(arr => ({x: arr[0], y: arr[1]}));
-                            let sRatio = currentScanData.s || 0.05;
-                            let oxRatio = currentScanData.ox || 0.5;
-                            let oyRatio = currentScanData.oy || 0.5;
+                            // --- NUEVA LÓGICA HYBRID: DETECCIÓN DE MARCO ---
+                            const detectedRectangle = detectGridRectangle(frameData);
                             
-                            const projectedPts = pts.map(pt => {
-                                let relPx = (pt.x * sRatio) + oxRatio;
-                                let relPy = oyRatio - (pt.y * sRatio);
+                            if (detectedRectangle) {
+                                smoothedTransform.gridCorners = detectedRectangle;
+                                gridTrackingConfidence = Math.min(100, gridTrackingConfidence + 20);
+                            } else {
+                                gridTrackingConfidence = Math.max(0, gridTrackingConfidence - 10);
+                            }
+
+                            // 5. Proyección Transformacional (Híbrida)
+                            let pts = currentScanData.p.map(arr => ({x: arr[0], y: arr[1]}));
+                            let projectedPts = [];
+
+                            if (gridTrackingConfidence > 30 && smoothedTransform.gridCorners) {
+                                // TRACKING POR RECTÁNGULO (Mucho más estable)
+                                scannerStatus.innerText = "⭐ Seguimiento de Plano Activado (Alta Estabilidad)";
+                                projectedPts = projectPointsToGrid(pts, smoothedTransform.gridCorners, currentScanData);
+                            } else {
+                                // FALLBACK: TRACKING POR QR (Solo si el marco falla)
+                                let sRatio = currentScanData.s || 0.05;
+                                let oxRatio = currentScanData.ox || 0.5;
+                                let oyRatio = currentScanData.oy || 0.5;
                                 
-                                let px_unrotated = relPx * cw;
-                                let py_unrotated = relPy * cw;
-                                
-                                return {
-                                    px: smoothedTransform.camCanvasX + (px_unrotated * Math.cos(smoothedTransform.angle) - py_unrotated * Math.sin(smoothedTransform.angle)),
-                                    py: smoothedTransform.camCanvasY + (px_unrotated * Math.sin(smoothedTransform.angle) + py_unrotated * Math.cos(smoothedTransform.angle))
-                                };
-                            });
+                                projectedPts = pts.map(pt => {
+                                    let relPx = (pt.x * sRatio) + oxRatio;
+                                    let relPy = oyRatio - (pt.y * sRatio);
+                                    let px_unrotated = relPx * cw;
+                                    let py_unrotated = relPy * cw;
+                                    return {
+                                        px: smoothedTransform.camCanvasX + (px_unrotated * Math.cos(smoothedTransform.angle) - py_unrotated * Math.sin(smoothedTransform.angle)),
+                                        py: smoothedTransform.camCanvasY + (px_unrotated * Math.sin(smoothedTransform.angle) + py_unrotated * Math.cos(smoothedTransform.angle))
+                                    };
+                                });
+                            }
                             
                             // 6. Motor Visual Evaluador
                             renderOverlay(projectedPts, frameData);
                         }
                     } else if (currentScanData && framesSinceLastQR < MAX_PERSISTENCE_FRAMES) {
-                        // MODO PERSISTENCIA: Seguir dibujando con el último transform conocido
                         framesSinceLastQR++;
-                        scannerStatus.innerText = "⚡ Mantén el QR a la vista (Modo Persistencia)";
+                        scannerStatus.innerText = "⚡ Mantén la hoja visible (Modo Persistencia)";
                         
-                        const qwRatio = currentScanData.qw || 0.20;
-                        const cw = smoothedTransform.qrW / qwRatio; 
-                        let pts = currentScanData.p.map(arr => ({x: arr[0], y: arr[1]}));
-                        let sRatio = currentScanData.s || 0.05;
-                        let oxRatio = currentScanData.ox || 0.5;
-                        let oyRatio = currentScanData.oy || 0.5;
+                        const detectedRectangle = detectGridRectangle(frameData);
+                        if(detectedRectangle) {
+                            smoothedTransform.gridCorners = detectedRectangle;
+                            gridTrackingConfidence = 100;
+                        }
 
-                        const projectedPts = pts.map(pt => {
-                            let relPx = (pt.x * sRatio) + oxRatio;
-                            let relPy = oyRatio - (pt.y * sRatio);
-                            let px_unrotated = relPx * cw;
-                            let py_unrotated = relPy * cw;
-                            return {
-                                px: smoothedTransform.camCanvasX + (px_unrotated * Math.cos(smoothedTransform.angle) - py_unrotated * Math.sin(smoothedTransform.angle)),
-                                py: smoothedTransform.camCanvasY + (px_unrotated * Math.sin(smoothedTransform.angle) + py_unrotated * Math.cos(smoothedTransform.angle))
-                            };
-                        });
+                        let pts = currentScanData.p.map(arr => ({x: arr[0], y: arr[1]}));
+                        let projectedPts = [];
+
+                        if (gridTrackingConfidence > 30 && smoothedTransform.gridCorners) {
+                            projectedPts = projectPointsToGrid(pts, smoothedTransform.gridCorners, currentScanData);
+                        } else {
+                            // Fallback smoothed transform
+                            const qwRatio = currentScanData.qw || 0.35;
+                            const cw = smoothedTransform.qrW / qwRatio; 
+                            let sRatio = currentScanData.s || 0.05;
+                            let oxRatio = currentScanData.ox || 0.5;
+                            let oyRatio = currentScanData.oy || 0.5;
+
+                            projectedPts = pts.map(pt => {
+                                let relPx = (pt.x * sRatio) + oxRatio;
+                                let relPy = oyRatio - (pt.y * sRatio);
+                                let px_unrotated = relPx * cw;
+                                let py_unrotated = relPy * cw;
+                                return {
+                                    px: smoothedTransform.camCanvasX + (px_unrotated * Math.cos(smoothedTransform.angle) - py_unrotated * Math.sin(smoothedTransform.angle)),
+                                    py: smoothedTransform.camCanvasY + (px_unrotated * Math.sin(smoothedTransform.angle) + py_unrotated * Math.cos(smoothedTransform.angle))
+                                };
+                            });
+                        }
                         renderOverlay(projectedPts, frameData);
 
                     } else if (!currentScanData) {
@@ -1101,6 +1171,89 @@
                 scannerCtx.stroke();
             });
         }
+
+        // --- MOTOR DE VISIÓN ARTIFICIAL (OPENCV.JS) ---
+        
+        function detectGridRectangle(frameData) {
+            if (typeof cv === 'undefined' || !cv.Mat) return null;
+            
+            let src = cv.matFromImageData(frameData);
+            let dst = new cv.Mat();
+            
+            // 1. Preprocesamiento: Grayscale + Blur + Canny
+            cv.cvtColor(src, dst, cv.COLOR_RGBA2GRAY);
+            cv.GaussianBlur(dst, dst, new cv.Size(5, 5), 0);
+            cv.Canny(dst, dst, 50, 150);
+            
+            // 2. Encontrar Contornos
+            let contours = new cv.MatVector();
+            let hierarchy = new cv.Mat();
+            cv.findContours(dst, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+            
+            let bestRect = null;
+            let maxArea = 0;
+            
+            for (let i = 0; i < contours.size(); ++i) {
+                let cnt = contours.get(i);
+                let area = cv.contourArea(cnt);
+                let perimeter = cv.arcLength(cnt, true);
+                let approx = new cv.Mat();
+                cv.approxPolyDP(cnt, approx, 0.02 * perimeter, true);
+                
+                // Buscamos el rectángulo más grande (cuadrilátero convexo)
+                if (approx.rows === 4 && area > (src.rows * src.cols * 0.08) && cv.isContourConvex(approx)) {
+                    if (area > maxArea) {
+                        maxArea = area;
+                        // Extraer esquinas y ordenarlas (TL, TR, BR, BL)
+                        let pts = [];
+                        for (let j = 0; j < 4; j++) {
+                            pts.push({ x: approx.data32S[j * 2], y: approx.data32S[j * 2 + 1] });
+                        }
+                        bestRect = orderCorners(pts);
+                    }
+                }
+                approx.delete();
+            }
+            
+            // Limpiar memoria OpenCV (CRÍTICO)
+            src.delete(); dst.delete(); contours.delete(); hierarchy.delete();
+            
+            return bestRect;
+        }
+
+        function orderCorners(pts) {
+            // Orden: Superior-Izquierda (TL), Superior-Derecha (TR), Inferior-Derecha (BR), Inferior-Izquierda (BL)
+            pts.sort((a, b) => a.y - b.y);
+            let top = pts.slice(0, 2).sort((a, b) => a.x - b.x);
+            let bottom = pts.slice(2, 4).sort((a, b) => b.x - a.x);
+            return [top[0], top[1], bottom[0], bottom[1]];
+        }
+
+        function projectPointsToGrid(pts, grid, scanData) {
+            // Usamos las 4 esquinas del grid para proyectar los puntos relativos
+            // grid[0]=TL, grid[1]=TR, grid[2]=BR, grid[3]=BL
+            
+            let sRatio = scanData.s || 0.05;
+            let oxRatio = scanData.ox || 0.5;
+            let oyRatio = scanData.oy || 0.5;
+
+            return pts.map(pt => {
+                let relX = (pt.x * sRatio) + oxRatio;
+                let relY = oyRatio - (pt.y * sRatio);
+                
+                // Interpolación Bilineal Simple entre las 4 esquinas del marco
+                let topX = grid[0].x + (grid[1].x - grid[0].x) * relX;
+                let topY = grid[0].y + (grid[1].y - grid[0].y) * relX;
+                let botX = grid[3].x + (grid[2].x - grid[3].x) * relX;
+                let botY = grid[3].y + (grid[2].y - grid[3].y) * relX;
+                
+                return {
+                    px: topX + (botX - topX) * relY,
+                    py: topY + (botY - topY) * relY
+                };
+            });
+        }
+
 
     </script>
 </body>
