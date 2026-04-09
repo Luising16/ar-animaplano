@@ -318,7 +318,7 @@
                 <div id="canvas-wrapper" style="position: relative; width: 100%; max-width: 25cm; aspect-ratio: 1; margin: 0 auto;">
                     <div id="canvas-tooltip"></div>
                     <canvas id="cartesian-canvas" style="width: 100%; height: 100%; border: 1px solid var(--border-color); display:block;"></canvas>
-                    <div id="qr-container" style="display:none; position: absolute; top: 2%; right: 2%; width: 16%; aspect-ratio: 1; background: white; padding: 1%; border-radius: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 2px solid black; z-index: 5;">
+                    <div id="qr-container" style="display:none; position: absolute; top: 2%; right: 2%; width: 20%; aspect-ratio: 1; background: white; padding: 1%; border-radius: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 2px solid black; z-index: 5;">
                         <p class="no-print" style="position:absolute; top:-25px; right:0; margin:0; font-weight:600; font-size:0.8rem; white-space:nowrap;">Código QR:</p>
                         <div id="qrcode" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;"></div>
                     </div>
@@ -486,9 +486,9 @@
                 s: scale / canvas.width,
                 ox: offsetX / canvas.width,
                 oy: offsetY / canvas.height,
-                qx: 0.82, // Left percentage (1 - 0.02 - 0.16)
+                qx: 0.78, // Proporción Left (1 - margin_right - qr_width) = 1 - 0.02 - 0.20
                 qy: 0.02, // Top percentage
-                qw: 0.16  // Width percentage
+                qw: 0.20  // Width percentage (20%)
             };
             const qrText = JSON.stringify(dataToExport);
             const qrContainer = document.getElementById('qr-container');
@@ -503,7 +503,7 @@
                 height: 256,
                 colorDark : "#000000",
                 colorLight : "#ffffff",
-                correctLevel : QRCode.CorrectLevel.L
+                correctLevel : QRCode.CorrectLevel.M // Nivel Medio para mejor balance
             });
         }
 
@@ -845,6 +845,14 @@
         let scanningLoop = null;
         let showingAnswer = false;
         let currentScanData = null;
+        
+        // Variables para Suavizado (EMA) y Persistencia
+        let framesSinceLastQR = 100; // Empezamos alto para indicar que no hay nada
+        let smoothedTransform = {
+            camCanvasX: 0, camCanvasY: 0, qrW: 0, angle: 0
+        };
+        const EMA_ALPHA = 0.3; // Factor de suavizado (0 a 1)
+        const MAX_PERSISTENCE_FRAMES = 45; // ~1.5 segundos a 30fps
 
         function toggleAnswer() {
             showingAnswer = !showingAnswer;
@@ -874,10 +882,32 @@
 
         async function startScanner() {
             try {
-                scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                const constraints = { 
+                    video: { 
+                        facingMode: "environment",
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    } 
+                };
+                scannerStream = await navigator.mediaDevices.getUserMedia(constraints);
                 scannerVideo.srcObject = scannerStream;
                 
-                // Setear resolución del Canvas al Video
+                // Intentar aplicar configuraciones avanzadas si el navegador lo permite
+                const track = scannerStream.getVideoTracks()[0];
+                const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+                
+                const advancedConstraints = {};
+                if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
+                    advancedConstraints.focusMode = 'continuous';
+                }
+                if (capabilities.whiteBalanceMode && capabilities.whiteBalanceMode.includes('continuous')) {
+                    advancedConstraints.whiteBalanceMode = 'continuous';
+                }
+                
+                if (Object.keys(advancedConstraints).length > 0) {
+                    track.applyConstraints({ advanced: [advancedConstraints] }).catch(e => console.log("Constraints no soportados", e));
+                }
+
                 scannerVideo.onloadedmetadata = () => {
                     scannerCanvas.width = scannerVideo.videoWidth;
                     scannerCanvas.height = scannerVideo.videoHeight;
@@ -885,7 +915,10 @@
                 
                 requestAnimationFrame(tickScanner);
                 scannerStatus.innerText = "Buscando Código QR...";
-            } catch(e) { document.getElementById('scanner-status').innerText = "Cámara no disponible."; }
+            } catch(e) { 
+                console.error(e);
+                document.getElementById('scanner-status').innerText = "Cámara no disponible."; 
+            }
         }
 
         function stopScanner() {
@@ -921,35 +954,57 @@
                         } catch(e) {}
 
                         if (currentScanData) {
-                            scannerStatus.innerText = "¡Escaneo y Mapeo en Vivo Perfecto!";
-                            document.getElementById('btn-show-answer').classList.remove('hidden');
-
-                            // Mapeo Dinámico de Proyección Mágica y Rotación Vectorial (Scanner Universal)
-                             // 1. Escala Universal y Ángulo de Rotación Dinámica
+                            // 1. Datos Brutos del QR actual
                             const qrTopLeftX = code.location.topLeftCorner.x;
                             const qrTopLeftY = code.location.topLeftCorner.y;
                             const qrTopRightX = code.location.topRightCorner.x;
                             const qrTopRightY = code.location.topRightCorner.y;
                             
-                            const qrW = Math.sqrt(Math.pow(qrTopRightX - qrTopLeftX, 2) + Math.pow(qrTopRightY - qrTopLeftY, 2));
-                            const angle = Math.atan2(qrTopRightY - qrTopLeftY, qrTopRightX - qrTopLeftX);
-                            
-                            // 2. Extrapolación Matemática según METADATOS del QR
-                            const qxRatio = currentScanData.qx || 0.82;
-                            const qyRatio = currentScanData.qy || 0.02;
-                            const qwRatio = currentScanData.qw || 0.16;
+                            const rawQrW = Math.sqrt(Math.pow(qrTopRightX - qrTopLeftX, 2) + Math.pow(qrTopRightY - qrTopLeftY, 2));
+                            const rawAngle = Math.atan2(qrTopRightY - qrTopLeftY, qrTopRightX - qrTopLeftX);
 
-                            const cw = qrW / qwRatio; 
+                            // 2. Aplicar Suavizado EMA
+                            if (framesSinceLastQR > MAX_PERSISTENCE_FRAMES) {
+                                // Primer frame después de mucho tiempo: Inicializar sin suavizado
+                                smoothedTransform.qrW = rawQrW;
+                                smoothedTransform.angle = rawAngle;
+                                smoothedTransform.camCanvasX = qrTopLeftX; // Temporal, se ajusta abajo
+                                smoothedTransform.camCanvasY = qrTopLeftY;
+                            } else {
+                                smoothedTransform.qrW = (rawQrW * EMA_ALPHA) + (smoothedTransform.qrW * (1 - EMA_ALPHA));
+                                // Para el ángulo usamos un wrap simple si es necesario, pero atan2 es estable
+                                smoothedTransform.angle = (rawAngle * EMA_ALPHA) + (smoothedTransform.angle * (1 - EMA_ALPHA));
+                            }
+
+                            // 3. Extrapolación Matemática según METADATOS del QR
+                            const qxRatio = currentScanData.qx || 0.78;
+                            const qyRatio = currentScanData.qy || 0.02;
+                            const qwRatio = currentScanData.qw || 0.20;
+
+                            const cw = smoothedTransform.qrW / qwRatio; 
                             
-                            // 3. Origen del CartesianCanvas vectorizado desde el QR! 
+                            // 4. Origen del CartesianCanvas vectorizado
                             const vecX = -qxRatio * cw;
                             const vecY = -qyRatio * cw;
-                            const rotVecX = vecX * Math.cos(angle) - vecY * Math.sin(angle);
-                            const rotVecY = vecX * Math.sin(angle) + vecY * Math.cos(angle);
-                            const camCanvasX = qrTopLeftX + rotVecX;
-                            const camCanvasY = qrTopLeftY + rotVecY;
+                            const rotVecX = vecX * Math.cos(smoothedTransform.angle) - vecY * Math.sin(smoothedTransform.angle);
+                            const rotVecY = vecX * Math.sin(smoothedTransform.angle) + vecY * Math.cos(smoothedTransform.angle);
+                            
+                            const rawCamCanvasX = qrTopLeftX + rotVecX;
+                            const rawCamCanvasY = qrTopLeftY + rotVecY;
 
-                            // 4. Proyección Transformacional del Punto Virtual X,Y a Píxeles Físicos de la Cámara
+                            if (framesSinceLastQR > MAX_PERSISTENCE_FRAMES) {
+                                smoothedTransform.camCanvasX = rawCamCanvasX;
+                                smoothedTransform.camCanvasY = rawCamCanvasY;
+                            } else {
+                                smoothedTransform.camCanvasX = (rawCamCanvasX * EMA_ALPHA) + (smoothedTransform.camCanvasX * (1 - EMA_ALPHA));
+                                smoothedTransform.camCanvasY = (rawCamCanvasY * EMA_ALPHA) + (smoothedTransform.camCanvasY * (1 - EMA_ALPHA));
+                            }
+
+                            framesSinceLastQR = 0; // Reset de persistencia
+                            scannerStatus.innerText = "¡Escaneo y Mapeo en Vivo Perfecto!";
+                            document.getElementById('btn-show-answer').classList.remove('hidden');
+
+                            // 5. Proyección Transformacional
                             let pts = currentScanData.p.map(arr => ({x: arr[0], y: arr[1]}));
                             let sRatio = currentScanData.s || 0.05;
                             let oxRatio = currentScanData.ox || 0.5;
@@ -957,65 +1012,94 @@
                             
                             const projectedPts = pts.map(pt => {
                                 let relPx = (pt.x * sRatio) + oxRatio;
-                                let relPy = oyRatio - (pt.y * sRatio);  // Grid está Invertido hacia Arriba Matemáticamente
+                                let relPy = oyRatio - (pt.y * sRatio);
                                 
                                 let px_unrotated = relPx * cw;
                                 let py_unrotated = relPy * cw;
                                 
                                 return {
-                                    id: 0, x: pt.x, y: pt.y,
-                                    px: camCanvasX + (px_unrotated * Math.cos(angle) - py_unrotated * Math.sin(angle)),
-                                    py: camCanvasY + (px_unrotated * Math.sin(angle) + py_unrotated * Math.cos(angle))
+                                    px: smoothedTransform.camCanvasX + (px_unrotated * Math.cos(smoothedTransform.angle) - py_unrotated * Math.sin(smoothedTransform.angle)),
+                                    py: smoothedTransform.camCanvasY + (px_unrotated * Math.sin(smoothedTransform.angle) + py_unrotated * Math.cos(smoothedTransform.angle))
                                 };
                             });
                             
-                            // 5. Motor Visual Evaluador con Tinta Lápiz (Trazos Oscuros)
-                            let correctLines = 0;
-                            scannerCtx.lineWidth = 6;
-                            scannerCtx.lineCap = 'round';
-
-                            for(let i = 0; i < projectedPts.length; i++) {
-                                let p1 = projectedPts[i];
-                                let p2 = (i === projectedPts.length - 1) ? projectedPts[0] : projectedPts[i+1];
-                                
-                                const isDrawn = isLineDrawn(frameData, p1.px, p1.py, p2.px, p2.py);
-                                
-                                if(isDrawn) {
-                                    correctLines++;
-                                    scannerCtx.strokeStyle = 'rgba(16, 185, 129, 0.9)'; // Verde
-                                } else {
-                                    scannerCtx.strokeStyle = 'rgba(239, 68, 68, 0.6)'; // Rojo revelado
-                                }
-
-                                if(isDrawn || showingAnswer) {
-                                    scannerCtx.beginPath();
-                                    scannerCtx.moveTo(p1.px, p1.py);
-                                    scannerCtx.lineTo(p2.px, p2.py);
-                                    scannerCtx.stroke();
-                                }
-                            }
-                            
-                            scannerStatus.innerText = `Revisión Viva: ${correctLines}/${projectedPts.length} uniones perfectas.`;
-
-                            // 6. Dibuja los Esferos Base Cartesianos
-                            scannerCtx.fillStyle = '#1F2937'; 
-                            scannerCtx.strokeStyle = '#FFFFFF';
-                            scannerCtx.lineWidth = 2;
-                            projectedPts.forEach(pt => {
-                                scannerCtx.beginPath();
-                                scannerCtx.arc(pt.px, pt.py, 4, 0, Math.PI * 2);
-                                scannerCtx.fill();
-                                scannerCtx.stroke();
-                            });
+                            // 6. Motor Visual Evaluador
+                            renderOverlay(projectedPts, frameData);
                         }
+                    } else if (currentScanData && framesSinceLastQR < MAX_PERSISTENCE_FRAMES) {
+                        // MODO PERSISTENCIA: Seguir dibujando con el último transform conocido
+                        framesSinceLastQR++;
+                        scannerStatus.innerText = "⚡ Mantén el QR a la vista (Modo Persistencia)";
+                        
+                        const qwRatio = currentScanData.qw || 0.20;
+                        const cw = smoothedTransform.qrW / qwRatio; 
+                        let pts = currentScanData.p.map(arr => ({x: arr[0], y: arr[1]}));
+                        let sRatio = currentScanData.s || 0.05;
+                        let oxRatio = currentScanData.ox || 0.5;
+                        let oyRatio = currentScanData.oy || 0.5;
+
+                        const projectedPts = pts.map(pt => {
+                            let relPx = (pt.x * sRatio) + oxRatio;
+                            let relPy = oyRatio - (pt.y * sRatio);
+                            let px_unrotated = relPx * cw;
+                            let py_unrotated = relPy * cw;
+                            return {
+                                px: smoothedTransform.camCanvasX + (px_unrotated * Math.cos(smoothedTransform.angle) - py_unrotated * Math.sin(smoothedTransform.angle)),
+                                py: smoothedTransform.camCanvasY + (px_unrotated * Math.sin(smoothedTransform.angle) + py_unrotated * Math.cos(smoothedTransform.angle))
+                            };
+                        });
+                        renderOverlay(projectedPts, frameData);
+
                     } else if (!currentScanData) {
-                         scannerStatus.innerText = "👉 ENFOCA EL PLANO IMPRESO COMPLETO Y EL QR 👈";
-                    } else if (currentScanData) {
-                         scannerStatus.innerText = "¡Mueve tu celular e incluye el QR visualmente en la cámara!";
+                         scannerStatus.innerText = "👉 ENFOCA EL PLANO IMPRESO Y EL QR 👈";
+                    } else {
+                         scannerStatus.innerText = "¡Mueve tu celular e incluye el QR visualmente!";
+                         framesSinceLastQR++;
                     }
                 }
             }
             scanningLoop = requestAnimationFrame(tickScanner);
+        }
+
+        // Nueva función para modularizar el renderizado del overlay
+        function renderOverlay(projectedPts, frameData) {
+            let correctLines = 0;
+            scannerCtx.lineWidth = 6;
+            scannerCtx.lineCap = 'round';
+
+            for(let i = 0; i < projectedPts.length; i++) {
+                let p1 = projectedPts[i];
+                let p2 = (i === projectedPts.length - 1) ? projectedPts[0] : projectedPts[i+1];
+                const isDrawn = isLineDrawn(frameData, p1.px, p1.py, p2.px, p2.py);
+                
+                if(isDrawn) {
+                    correctLines++;
+                    scannerCtx.strokeStyle = 'rgba(16, 185, 129, 0.9)'; 
+                } else {
+                    scannerCtx.strokeStyle = 'rgba(239, 68, 68, 0.6)'; 
+                }
+
+                if(isDrawn || showingAnswer) {
+                    scannerCtx.beginPath();
+                    scannerCtx.moveTo(p1.px, p1.py);
+                    scannerCtx.lineTo(p2.px, p2.py);
+                    scannerCtx.stroke();
+                }
+            }
+            
+            if (framesSinceLastQR === 0) {
+                scannerStatus.innerText = `Revisión Viva: ${correctLines}/${projectedPts.length} uniones perfectas.`;
+            }
+
+            scannerCtx.fillStyle = '#1F2937'; 
+            scannerCtx.strokeStyle = '#FFFFFF';
+            scannerCtx.lineWidth = 2;
+            projectedPts.forEach(pt => {
+                scannerCtx.beginPath();
+                scannerCtx.arc(pt.px, pt.py, 4, 0, Math.PI * 2);
+                scannerCtx.fill();
+                scannerCtx.stroke();
+            });
         }
 
     </script>
