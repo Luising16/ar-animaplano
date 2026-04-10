@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ar-animaplanos-v8';
+const CACHE_NAME = 'ar-animaplanos-v9';
 
 // Recursos esenciales pre-cacheados (App Shell)
 const INITIAL_CACHED_RESOURCES = [
@@ -57,7 +57,8 @@ self.addEventListener('fetch', event => {
                     'cdn.jsdelivr.net',     // jsQR
                     'docs.opencv.org',      // OpenCV.js
                     'cdnjs.cloudflare.com', // qrcodejs
-                    'fonts.gstatic.com'     // Inter Font files
+                    'fonts.gstatic.com',    // Inter Font files
+                    'aframe.io'             // A-Frame AR Engine
                 ];
 
                 const isCdnRequest = cdnDomains.some(domain => event.request.url.includes(domain));

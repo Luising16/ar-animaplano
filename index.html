@@ -213,7 +213,22 @@
         .scanner-container { position: relative; width: 100%; max-width: 600px; aspect-ratio: 4/3; }
         #scanner-video { width: 100%; height: 100%; object-fit: cover; }
         #scanner-canvas { position: absolute; top:0; left:0; width: 100%; height: 100%; z-index: 10; }
-        .scanner-tools { position: absolute; bottom: 2rem; display: flex; gap: 1rem; z-index: 20; }
+        .scanner-tools { 
+            position: absolute; 
+            top: 1rem; 
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex; 
+            gap: 1rem; 
+            z-index: 20; 
+            background: rgba(255, 255, 255, 0.15); 
+            backdrop-filter: blur(12px); 
+            -webkit-backdrop-filter: blur(12px);
+            padding: 0.8rem 1.5rem; 
+            border-radius: 2rem; 
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
 
         /* Title for printing */
         .print-only-title { display: none; text-align: center; font-size: 2rem; margin-bottom: 1rem; }
@@ -234,7 +249,18 @@
         }
 
         #qrcode img, #qrcode canvas { width: 100% !important; height: 100% !important; object-fit: contain; }
+
+        /* A-Frame container style */
+        .aframe-layer {
+            position: absolute; top:0; left:0; width: 100%; height: 100%;
+            z-index: 15; pointer-events: none;
+        }
     </style>
+    <!-- Librerías Externas CDN -->
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script async src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script async src="https://docs.opencv.org/4.7.0/opencv.js" onload="console.log('OpenCV.js Loaded')" type="text/javascript"></script>
 </head>
 <body>
 
@@ -307,8 +333,7 @@
                         </tbody>
                     </table>
                 </div>
-                <button class="btn" style="width:100%" onclick="addEmptyRow()">+ Añadir Coordenada</button>
-                <button class="btn btn-blue" style="width:100%; margin-top:0.5rem;" onclick="generateQR()">Generar QR AR</button>
+                <button class="btn" style="width:100%; margin-top:0.5rem;" onclick="addEmptyRow()">+ Añadir Coordenada</button>
                 <button class="btn" style="width:100%; margin-top:0.5rem; color: var(--danger)" onclick="clearFigure()">Borrar Todo</button>
             </aside>
             
@@ -332,19 +357,26 @@
             <div class="scanner-container no-print">
                 <video id="scanner-video" playsinline autoplay></video>
                 <canvas id="scanner-canvas"></canvas>
+                <!-- Capa 3D A-Frame embebida -->
+                <div class="aframe-layer">
+                    <a-scene embedded vr-mode-ui="enabled: false"
+                             renderer="logarithmicDepthBuffer: true; precision: medium; antialias: true; alpha: true"
+                             style="width: 100%; height: 100%; background: transparent;">
+                        <!-- Escena 3D, cámara virtual -->
+                        <a-camera id="ar-camera" position="0 0 0" near="0.01" far="10000" look-controls="enabled: false" wasd-controls="enabled: false"></a-camera>
+                        <a-entity id="ar-anchor" visible="false">
+                            <!-- Aquí se inyectan las primitivas del animaplano -->
+                        </a-entity>
+                    </a-scene>
+                </div>
             </div>
             <div class="scanner-tools no-print">
                 <button class="btn btn-blue" onclick="navigateTo('home-view')">Atrás</button>
-                <button class="btn btn-green hidden" id="btn-show-answer" onclick="toggleAnswer()">Revisión Maestro</button>
+                <button class="btn btn-green hidden" id="btn-show-answer" onclick="toggleAnswer()">Ver Figura Esperada</button>
             </div>
-            <div style="position:absolute; bottom:5rem; background: rgba(255,255,255,0.9); padding: 0.5rem 1rem; border-radius: 0.5rem; font-weight: bold; z-index:20; border: 2px solid black;" id="scanner-status" class="no-print">Inicializando cámara...</div>
+            <div style="position:absolute; bottom:5rem; background: rgba(255,255,255,0.9); padding: 0.5rem 1rem; border-radius: 0.5rem; font-weight: bold; z-index:20; border: 2px solid black; text-align: center;" id="scanner-status" class="no-print">Inicializando cámara...</div>
         </div>
     </main>
-
-    <!-- Librerías Externas CDN -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <script async src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
-    <script async src="https://docs.opencv.org/4.7.0/opencv.js" onload="console.log('OpenCV.js Loaded')" type="text/javascript"></script>
 
     <script>
         /**
@@ -435,11 +467,13 @@
             document.getElementById('animaplano-title') ? document.getElementById('animaplano-title').innerText = currentFigure.nombre : null;
             document.getElementById('print-title').innerText = currentFigure.nombre;
             drawCartesian();
+            generateQR();
         }
 
         function updatePoint(idx, axis, value) {
             currentFigure.puntos[idx][axis] = parseFloat(value) || 0;
             drawCartesian();
+            generateQR();
         }
 
         function deletePoint(idx) {
@@ -479,20 +513,17 @@
             centerFigure();
             drawCartesian();
 
-            // Comprimir la data + Metadatos de Layout EXACTOS (Relativos al canvas)
-            // Serialización Compacta v2 para Máximo Alcance (50cm+)
-            const nameComp = currentFigure.nombre.substring(0, 15).replace(/:/g, '');
+            // Comprimir la data + Metadatos de Layout EXACTOS
+            // Usamos formato v3 ultra-compacto y Error Correction Level L para mayor distancia visual
             const ptsComp = currentFigure.puntos.map(p => `${p.x},${p.y}`).join(';');
             const sRel = (scale / canvas.width).toFixed(3);
             const oxRel = (offsetX / canvas.width).toFixed(3);
             const oyRel = (offsetY / canvas.height).toFixed(3);
             
             // Metadatos de Layout Exactos (Sin padding)
-            const qx = 0.63; // 1 - margin_right(0.02) - width(0.35)
-            const qy = 0.02;
-            const qw = 0.35;
-
-            const qrText = `v2|${nameComp}|${ptsComp}|${sRel},${oxRel},${oyRel},${qx},${qy},${qw}`;
+            // Reducimos enormemente la metadata de layout porque es constante en impresión
+            // Ya no incluimos el string completo del nombre para ahorrar bytes.
+            const qrText = `v3|${ptsComp}|${sRel},${oxRel},${oyRel}`;
             
             const qrContainer = document.getElementById('qr-container');
             const qrCodeDiv = document.getElementById('qrcode');
@@ -506,7 +537,7 @@
                 height: 256,
                 colorDark : "#000000",
                 colorLight : "#ffffff",
-                correctLevel : QRCode.CorrectLevel.M 
+                correctLevel : QRCode.CorrectLevel.L // Nivel L: mínimo redundancia, cuadrados más grandes
             });
         }
 
@@ -972,8 +1003,23 @@
                     
                     if (code) {
                         try {
-                            // Soporte para v2 (Compacto) y fallback JSON
-                            if (code.data.startsWith('v2|')) {
+                            // Soporte para v3 (Ultra-Compacto), v2 y fallback JSON
+                            if (code.data.startsWith('v3|')) {
+                                const [version, ptsStr, metaStr] = code.data.split('|');
+                                const ptsArr = ptsStr.split(';').map(s => s.split(',').map(Number));
+                                const metaArr = metaStr.split(',').map(Number);
+                                
+                                currentScanData = {
+                                    n: "Figura Detectada",
+                                    p: ptsArr,
+                                    s: metaArr[0],
+                                    ox: metaArr[1],
+                                    oy: metaArr[2],
+                                    qx: 0.63, // Valor estático impreso en layout
+                                    qy: 0.02,
+                                    qw: 0.35
+                                };
+                            } else if (code.data.startsWith('v2|')) {
                                 const [version, name, ptsStr, metaStr] = code.data.split('|');
                                 const ptsArr = ptsStr.split(';').map(s => s.split(',').map(Number));
                                 const metaArr = metaStr.split(',').map(Number);
@@ -1131,9 +1177,10 @@
             scanningLoop = requestAnimationFrame(tickScanner);
         }
 
-        // Nueva función para modularizar el renderizado del overlay
+        // Nueva función para modularizar el renderizado del overlay 2D y puente al 3D
         function renderOverlay(projectedPts, frameData) {
             let correctLines = 0;
+            let isDrawnStats = [];
             scannerCtx.lineWidth = 6;
             scannerCtx.lineCap = 'round';
 
@@ -1155,10 +1202,15 @@
                     scannerCtx.lineTo(p2.px, p2.py);
                     scannerCtx.stroke();
                 }
+                
+                // Track for 3D
+                isDrawnStats.push(isDrawn);
             }
             
+            const isAllCorrect = correctLines === projectedPts.length;
             if (framesSinceLastQR === 0) {
                 scannerStatus.innerText = `Revisión Viva: ${correctLines}/${projectedPts.length} uniones perfectas.`;
+                if(isAllCorrect) scannerStatus.innerText = "🌟 ¡PERFECTO! MIRA LA SUPERFICIE. 🌟";
             }
 
             scannerCtx.fillStyle = '#1F2937'; 
@@ -1170,6 +1222,193 @@
                 scannerCtx.fill();
                 scannerCtx.stroke();
             });
+
+            // Sincronizar Capa de Realidad Aumentada Espacial (A-Frame)
+            updateAFramePose(frameData.width, frameData.height);
+            updateAFrameGeometry(currentScanData, isDrawnStats, isAllCorrect);
+        }
+
+        // --- MOTOR DE REALIDAD AUMENTADA ESPACIAL (A-FRAME) ---
+        let geometryInitialized = false;
+        let lastFigureName = "";
+        let isLevitating = false;
+
+        function updateAFramePose(frameWidth, frameHeight) {
+            // Requerimos que OpenCV esté listo y tengamos un marco estable
+            if (typeof cv === 'undefined' || !cv.Mat || gridTrackingConfidence < 10 || !smoothedTransform.gridCorners) return;
+            
+            const anchor = document.getElementById('ar-anchor');
+            if(!anchor) return;
+
+            // 1. Configurar la matriz de la cámara Virtual (A-Frame)
+            if (!window.cameraConfigured) {
+                const camEl = document.getElementById('ar-camera');
+                if (camEl && camEl.components.camera && camEl.components.camera.camera) {
+                    const tcam = camEl.components.camera.camera;
+                    const focalLength = frameWidth; // Distancia focal empírica estándar
+                    tcam.projectionMatrix.elements[0] = 2 * focalLength / frameWidth;
+                    tcam.projectionMatrix.elements[5] = 2 * focalLength / frameHeight;
+                    tcam.projectionMatrix.elements[8] = 0; 
+                    tcam.projectionMatrix.elements[9] = 0; 
+                    window.cameraConfigured = true;
+                }
+            }
+
+            // 2. Modelo 3D del Marco Físico (Asumimos hoja de papel de aprox 18cm util)
+            const W = 0.18; 
+            let objPts = cv.matFromArray(4, 1, cv.CV_32FC3, [
+                -W/2,  W/2, 0, // Upper Left
+                 W/2,  W/2, 0, // Upper Right
+                 W/2, -W/2, 0, // Bottom Right
+                -W/2, -W/2, 0  // Bottom Left
+            ]);
+
+            // 3. Puntos 2D detectados en cámara
+            let imgPts = cv.matFromArray(4, 1, cv.CV_32FC2, [
+                smoothedTransform.gridCorners[0].x, smoothedTransform.gridCorners[0].y,
+                smoothedTransform.gridCorners[1].x, smoothedTransform.gridCorners[1].y,
+                smoothedTransform.gridCorners[2].x, smoothedTransform.gridCorners[2].y,
+                smoothedTransform.gridCorners[3].x, smoothedTransform.gridCorners[3].y
+            ]);
+
+            // Intrínsecas
+            let focalLength = frameWidth;
+            let cx = frameWidth / 2;
+            let cy = frameHeight / 2;
+            let camMat = cv.matFromArray(3, 3, cv.CV_64F, [
+                focalLength, 0, cx,
+                0, focalLength, cy,
+                0, 0, 1
+            ]);
+            let distCoeffs = cv.Mat.zeros(4, 1, cv.CV_64F);
+            let rvec = new cv.Mat();
+            let tvec = new cv.Mat();
+            
+            // Computar Extrínsecas (Pose)
+            let success = cv.solvePnP(objPts, imgPts, camMat, distCoeffs, rvec, tvec, false, cv.SOLVEPNP_ITERATIVE);
+            
+            if (success) {
+                let rmat = new cv.Mat();
+                cv.Rodrigues(rvec, rmat);
+                
+                // Conversión CV (Y down, Z fwd) -> WebGL (Y up, Z back)
+                let tempMat = new THREE.Matrix4();
+                tempMat.set(
+                     rmat.doublePtr(0,0), -rmat.doublePtr(0,1), -rmat.doublePtr(0,2), tvec.doublePtr(0),
+                    -rmat.doublePtr(1,0),  rmat.doublePtr(1,1),  rmat.doublePtr(1,2), -tvec.doublePtr(1),
+                    -rmat.doublePtr(2,0),  rmat.doublePtr(2,1),  rmat.doublePtr(2,2), -tvec.doublePtr(2),
+                     0, 0, 0, 1
+                );
+                
+                // Suavizar fuertemente usando EMA para estabilidad a 50cm+ de distancia
+                if(!window.lastMat) window.lastMat = tempMat.clone();
+                for(let i=0; i<16; i++) {
+                    window.lastMat.elements[i] = (tempMat.elements[i] * 0.15) + (window.lastMat.elements[i] * 0.85);
+                }
+
+                // Aplicar Pose al Ancla
+                window.lastMat.decompose(anchor.object3D.position, anchor.object3D.quaternion, anchor.object3D.scale);
+                anchor.setAttribute('visible', 'true');
+                
+                rmat.delete();
+            }
+            
+            objPts.delete(); imgPts.delete(); camMat.delete(); distCoeffs.delete();
+            rvec.delete(); tvec.delete();
+        }
+
+        function updateAFrameGeometry(scanData, isDrawnStats, isAllCorrect) {
+            const anchor = document.getElementById('ar-anchor');
+            if(!anchor || !scanData) return;
+
+            // Reset cuando cambia la figura
+            if(lastFigureName !== scanData.n) {
+                anchor.innerHTML = '';
+                geometryInitialized = false;
+                isLevitating = false;
+                lastFigureName = scanData.n;
+                
+                // HUD panel
+                let hud = document.createElement('a-entity');
+                hud.setAttribute('id', 'ar-hud');
+                hud.setAttribute('position', '0 0.1 0');
+                hud.setAttribute('rotation', '-90 0 0'); // plano en XZ (mirando arriba)
+                hud.setAttribute('text', `value: ${scanData.n}; color: #4F46E5; align: center; width: 0.5; font: dejavu;`);
+                anchor.appendChild(hud);
+            }
+
+            let sRatio = scanData.s || 0.05;
+            let oxRatio = scanData.ox || 0.5;
+            let oyRatio = scanData.oy || 0.5;
+            const modelScale = 0.18; 
+
+            if(!geometryInitialized) {
+                scanData.p.forEach((pt) => {
+                    let relX = (pt[0] * sRatio) + oxRatio;
+                    let relY = oyRatio - (pt[1] * sRatio);
+                    
+                    let px = (relX - 0.5) * modelScale; 
+                    let py = -(relY - 0.5) * modelScale; 
+                    
+                    let sphere = document.createElement('a-sphere');
+                    sphere.setAttribute('position', `${px} ${py} 0`);
+                    sphere.setAttribute('radius', '0.003');
+                    sphere.setAttribute('color', '#4F46E5');
+                    anchor.appendChild(sphere);
+                });
+
+                for(let i=0; i<scanData.p.length; i++) {
+                    let p1 = scanData.p[i];
+                    let p2 = (i === scanData.p.length - 1) ? scanData.p[0] : scanData.p[i+1];
+                    let relX1 = (p1[0] * sRatio) + oxRatio; let relY1 = oyRatio - (p1[1] * sRatio);
+                    let relX2 = (p2[0] * sRatio) + oxRatio; let relY2 = oyRatio - (p2[1] * sRatio);
+                    let px1 = (relX1 - 0.5) * modelScale; let py1 = -(relY1 - 0.5) * modelScale;
+                    let px2 = (relX2 - 0.5) * modelScale; let py2 = -(relY2 - 0.5) * modelScale;
+
+                    let distance = Math.sqrt(Math.pow(px2-px1,2) + Math.pow(py2-py1,2));
+                    let midX = (px1+px2)/2; let midY = (py1+py2)/2;
+                    let angle = Math.atan2(py2-py1, px2-px1) * (180/Math.PI);
+
+                    let cylinder = document.createElement('a-cylinder');
+                    cylinder.setAttribute('id', `ar-line-${i}`);
+                    cylinder.setAttribute('position', `${midX} ${midY} 0.001`);
+                    cylinder.setAttribute('rotation', `90 0 ${angle + 90}`); // Cilindro default crece en Y
+                    cylinder.setAttribute('radius', '0.0015');
+                    cylinder.setAttribute('height', distance);
+                    cylinder.setAttribute('color', '#EF4444');
+                    cylinder.setAttribute('opacity', '0.5'); 
+                    anchor.appendChild(cylinder);
+                }
+                geometryInitialized = true;
+            }
+
+            // Real-time Feedback
+            if(geometryInitialized && !isLevitating) {
+                isDrawnStats.forEach((isDrawn, idx) => {
+                    let cyl = document.getElementById(`ar-line-${idx}`);
+                    if(cyl) {
+                        if(isDrawn) {
+                            cyl.setAttribute('color', '#10B981');
+                            cyl.setAttribute('opacity', '1.0');
+                        } else {
+                            cyl.setAttribute('color', '#EF4444');
+                            cyl.setAttribute('opacity', '0.5');
+                        }
+                    }
+                });
+
+                // Efecto Magico Levitativo al completar
+                if(isAllCorrect) {
+                    isLevitating = true;
+                    // Mover ancla hacia Z+ virtual (Arriba en el papel físico)
+                    anchor.setAttribute('animation', `property: position; to: ${anchor.object3D.position.x} ${anchor.object3D.position.y} -0.15; dur: 2000; easing: easeOutElastic`);
+                    
+                    let hud = document.getElementById('ar-hud');
+                    if(hud) {
+                        hud.setAttribute('text', `value: ${scanData.n} - LOGRADO PERFECTO!; color: #10B981; align: center; width: 0.8; font: dejavu;`);
+                    }
+                }
+            }
         }
 
         // --- MOTOR DE VISIÓN ARTIFICIAL (OPENCV.JS) ---
